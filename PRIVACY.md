@@ -1,10 +1,10 @@
 # Privacy Policy — SwR (Shortwave Radio)
 
-_Last updated: 19 June 2026_
+_Last updated: 12 July 2026_
 
-SwR ("the app") is an unofficial client for public KiwiSDR shortwave receivers,
-published by **kruen**. This policy explains what data the app does and does not
-handle.
+SwR ("the app") is an unofficial client for public KiwiSDR and Web-888
+shortwave receivers, published by **kruen**. This policy explains what data the
+app does and does not handle.
 
 ## We do not collect personal data
 
@@ -16,23 +16,25 @@ The app stores no personal data on your device beyond your in-app settings.
 
 To do its job, the app connects to third-party services **that you choose**:
 
-- **Public KiwiSDR receivers** — when you connect to a receiver, your device
-  communicates directly with that volunteer-operated server. As with any
-  internet connection, the server can see your IP address. These receivers are
-  operated by third parties and are not controlled by the developer.
-- **Receiver list** — the list of receivers shown on the map is downloaded from
-  `rx.linkfanel.net`. Loading it sends a standard web request (including your IP
+- **Public receivers (KiwiSDR / Web-888)** — when you connect to a receiver,
+  your device communicates directly with that volunteer-operated server. As
+  with any internet connection, the server can see your IP address. These
+  receivers are operated by third parties and are not controlled by the
+  developer.
+- **Receiver lists** — the list of receivers shown on the map is downloaded
+  from the public registries `rx.linkfanel.net` (KiwiSDR) and `www.rx-888.com`
+  (Web-888). Loading a list sends a standard web request (including your IP
   address) to that server.
-- **Map tiles** — the map is drawn using tiles from **OpenStreetMap**. Loading
-  tiles sends standard web requests (including your IP address) to OpenStreetMap
-  tile servers, subject to their own privacy practices.
+
+The receiver map itself is drawn entirely offline from data bundled with the
+app; it makes no network requests of its own.
 
 The developer does not receive or log any of this traffic.
 
 ## Permissions
 
 The app requests only the **Internet** permission, which is required to stream
-audio and load the map and receiver list.
+audio and download the receiver lists.
 
 ## Children
 
