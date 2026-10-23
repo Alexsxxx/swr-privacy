@@ -26,50 +26,64 @@
   code { background: #f0f0f0; padding: .1em .35em; border-radius: 4px; font-size: .9em; }
   ul { padding-left: 1.4rem; }
   li { margin-bottom: .5rem; }
+  blockquote { margin: 1rem 0; padding: 0 1.25rem; }
 </style>
 </head>
 <body>
 <h1>Privacy Policy — SwR (Shortwave Radio)</h1>
-<p class="updated">Last updated: 12 July 2026</p>
 
-<p>SwR ("the app") is an unofficial client for public KiwiSDR and Web-888
-shortwave receivers, published by <strong>kruen</strong>. This policy explains what data the
-app does and does not handle.</p>
+<p class="updated">Last updated: 24 October 2026</p>
+
+<p>SwR ("the app") is an unofficial client for public software-defined radio receivers (KiwiSDR, Web-888, OpenWebRX, FM-DX Webserver, UberSDR and SpyServer), published by <strong>Kruen s.r.o.</strong> This policy explains what data the app does and does not handle.</p>
+
+<p>The publisher, and the data controller for the purposes of the GDPR, is:</p>
+
+<blockquote><p><strong>Kruen s.r.o.</strong><br>
+K Hajku 1714, 509 01 Nova Paka, Czech Republic<br>
+Company ID (IČO): 09670157<br>
+info@kruen.cz</p></blockquote>
 
 <h2>We do not collect personal data</h2>
-<p>The app has <strong>no accounts, no analytics, no advertising, and no tracking</strong>. The
-developer does not collect, store, or share any personal information about you.
-The app stores no personal data on your device beyond your in-app settings.</p>
+
+<p>The app has <strong>no accounts, no analytics, no advertising, and no tracking</strong>. The developer does not collect, store, or share any personal information about you. The app stores no personal data on your device beyond your in-app settings.</p>
 
 <h2>Network connections you initiate</h2>
+
 <p>To do its job, the app connects to third-party services <strong>that you choose</strong>:</p>
+
 <ul>
-  <li><strong>Public receivers (KiwiSDR / Web-888)</strong> — when you connect to a receiver,
-    your device communicates directly with that volunteer-operated server. As
-    with any internet connection, the server can see your IP address. These
-    receivers are operated by third parties and are not controlled by the
-    developer.</li>
-  <li><strong>Receiver lists</strong> — the list of receivers shown on the map is downloaded
-    from the public registries <code>rx.linkfanel.net</code> (KiwiSDR) and <code>www.rx-888.com</code>
-    (Web-888). Loading a list sends a standard web request (including your IP
-    address) to that server.</li>
+  <li><strong>Public receivers</strong> — when you connect to a receiver (KiwiSDR, Web-888, OpenWebRX, FM-DX Webserver, UberSDR or SpyServer), your device communicates directly with that volunteer-operated server. As with any internet connection, the server can see your IP address. The name or callsign you enter in the app is sent to the receivers you connect to, which commonly show it to the receiver's operator and other listeners - this is how these public receivers work. These receivers are operated by third parties and are not controlled by the developer.</li>
+  <li><strong>Receiver lists, satellite data and broadcast schedules</strong> — downloaded from the developer's own static site on GitHub Pages (<code>alexsxxx.github.io</code>), the same files for every user. If that site cannot be reached, the app asks the public registries directly instead: <code>rx.linkfanel.net</code>, <code>www.rx-888.com</code>, <code>www.receiverbook.de</code>, <code>servers.fmdx.org</code>, <code>instances.ubersdr.org</code>, <code>airspy.com</code>, and for satellite orbits <code>db.satnogs.org</code> and <code>celestrak.org</code>. Like any web request, these include your IP address.</li>
+  <li><strong>Station logos</strong> — for FM stations the app may look up a logo the broadcaster publishes through RadioDNS. The lookup goes through the public DNS-over-HTTPS services of Google (<code>dns.google</code>) and Cloudflare (<code>cloudflare-dns.com</code>) and then to the broadcaster's own server, so these can see which station's logo was asked for.</li>
+  <li><strong>Map layers (Pro)</strong> — switching on the satellite ground downloads imagery tiles from NASA GIBS (<code>gibs.earthdata.nasa.gov</code>) for the part of the world on screen, switching on the cloud layer downloads whole-planet cloud pictures from EUMETSAT (<code>view.eumetsat.int</code>), and switching on the aurora layer downloads NOAA's aurora forecast (<code>services.swpc.noaa.gov</code>) - both the same files for every user. The city lights layer, which is on unless you switch it off, also downloads sharper tiles from NASA GIBS for the part of the world on screen, but only when you zoom in on an area where it is night. Like any web request, these include your IP address.</li>
+  <li><strong>Street map (Pro)</strong> — zooming the world map in close switches to a street map whose tiles come from OpenFreeMap (<code>tiles.openfreemap.org</code>) for the part of the world on screen.</li>
+  <li><strong>Aircraft (Pro)</strong> — the Planes view asks adsb.lol (<code>api.adsb.lol</code>) for the aircraft around the part of the map on screen.</li>
+  <li><strong>Purchases</strong> — buying or restoring Pro is handled by Google Play or the App Store under their own privacy policies. The developer receives no payment details.</li>
 </ul>
-<p>The receiver map itself is drawn entirely offline from data bundled with the
-app; it makes no network requests of its own.</p>
+
+<p>With the map layers, the street map and Planes not in use, the receiver map is drawn offline from data bundled with the app.</p>
+
 <p>The developer does not receive or log any of this traffic.</p>
 
 <h2>Permissions</h2>
-<p>The app requests only the <strong>Internet</strong> permission, which is required to stream
-audio and download the receiver lists.</p>
+
+<ul>
+  <li><strong>Internet</strong> — required to stream audio and download the receiver lists.</li>
+  <li><strong>Approximate location</strong> — asked for only if you tap "use my location" while adding your own receiver, and used only to fill in that receiver's coordinates so it gets a place on the map and a country flag. The app asks the system for approximate location only; it is never requested at startup, while listening, or in the background. The coordinates go into a field you can edit or clear, they are stored only as part of the receiver you choose to save, on your device, and they are not sent anywhere. You can decline and type the coordinates in yourself, or leave them empty.</li>
+  <li><strong>Notifications, background audio, display over other apps</strong> — used by the Pro features that keep playback running when the app is not in front and that float the dial strip over your home screen.</li>
+  <li><strong>USB</strong> — access to a receiver dongle you physically plug in is granted by the system, per device, when you plug it in.</li>
+</ul>
 
 <h2>Children</h2>
+
 <p>The app is a general-audience utility and is not directed at children.</p>
 
 <h2>Changes</h2>
-<p>If this policy changes, the updated version will be posted at this URL with a
-new "last updated" date.</p>
+
+<p>If this policy changes, the updated version will be posted at this URL with a new "last updated" date.</p>
 
 <h2>Contact</h2>
-<p>Questions about this policy: <strong>jaromir.sejnoha@gmail.com</strong></p>
+
+<p>Questions about this policy: <strong>info@kruen.cz</strong>, or by post to Kruen s.r.o., K Hajku 1714, 509 01 Nova Paka, Czech Republic.</p>
 </body>
 </html>
