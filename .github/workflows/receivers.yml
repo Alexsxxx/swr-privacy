@@ -112,7 +112,15 @@ jobs:
             echo "receivers.json unchanged — nothing to publish."
           else
             git commit -m "Update receivers.json ($(date -u +%FT%TZ))"
-            git push
+            # Rebase before pushing, as the other three jobs do: they publish
+            # into this same repo, and the first run here (2026-10-28) was
+            # rejected non-fast-forward by schedule pushing a second earlier.
+            # Each job touches only its own file, so the rebase cannot conflict.
+            for try in 1 2 3; do
+              git pull --rebase origin main && git push origin HEAD:main && break
+              echo "push race, retrying ($try)"
+              sleep 10
+            done
           fi
 
       # The alert, and the reason the carry-over above is not a way of hiding a
