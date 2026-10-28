@@ -9,7 +9,7 @@
 # says. No pull_request trigger, ever - that is what would hand the read key to
 # a fork. Comments below were written in SwR; "this repo" in them means SwR.
 #
-# Three-hourly proxy job: regenerate the unified receiver list and publish it to the
+# Hourly proxy job: regenerate the unified receiver list and publish it to the
 # public swr-privacy repo, whose GitHub Pages serves it at
 #   https://alexsxxx.github.io/swr-privacy/receivers.json
 # so the app does one small conditional GET against a CDN instead of every device
@@ -30,19 +30,19 @@
 # the app switches over automatically; until then it uses the direct registries.
 #
 # Note: the payload changes every run (timestamp + live user counts), so this
-# adds ~8 commits/day to swr-privacy's history. If that churn is unwelcome, move
+# adds ~24 commits/day to swr-privacy's history. If that churn is unwelcome, move
 # its Pages source to a dedicated `data` branch and push there instead.
 name: receivers
 
 on:
   schedule:
-    # Every three hours, on the hour (UTC). It was hourly until 2026-10-26,
-    # and at ~2 billed minutes a run that alone was ~1,490 of the account's
-    # 2,000 free Actions minutes a month - SwR is private, so they are paid
-    # for. The month ran out on 2026-10-25 and every job stopped. A receiver
-    # list three hours old loses nothing that matters: receivers come and go
-    # over days, and the live user counts in it were never exact.
-    - cron: '0 */3 * * *'
+    # Hourly, on the hour (UTC). It was cut to every three hours on
+    # 2026-10-26, when this ran in the private SwR repo and its ~1,490
+    # billed minutes a month were most of the account's 2,000; the month
+    # had run out. Here, in a public repo, the minutes are free, so it is
+    # back to hourly (2026-10-28) - the live user counts are the one part
+    # of the list that goes stale within hours.
+    - cron: '0 * * * *'
   workflow_dispatch: {}
 
 permissions:
