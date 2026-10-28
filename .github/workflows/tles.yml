@@ -1,0 +1,123 @@
+# ── Moved here from the private SwR repo on 2026-10-28 ──────────────────────
+# This repo is public, so its Actions minutes are free; in SwR every run of the
+# four data jobs came out of the account's 2,000 paid minutes, and they ran
+# out two months running. The generator still lives in SwR: the job checks it
+# out into `swr/` with SWR_READ_KEY (a READ-ONLY deploy key on SwR) and
+# publishes into this repo, checked out as `pages-repo/` with PAGES_DEPLOY_KEY
+# (a write deploy key here - a push by GITHUB_TOKEN would not start the Pages
+# build). The logs are public: they carry only what the published JSON already
+# says. No pull_request trigger, ever - that is what would hand the read key to
+# a fork. Comments below were written in SwR; "this repo" in them means SwR.
+#
+# Elements job: publish WHERE the catalogue's satellites are, to
+#   https://alexsxxx.github.io/swr-privacy/tles.json
+# which the app reads without needing a release. See app/tool/build_tles.dart
+# for the two sources and why our own file has to exist at all.
+#
+# The short version: until 2026-09-04 the app asked db.satnogs.org itself, once
+# per satellite, on every open of the satellite screen - 67 requests a time.
+# SatNOGS answers that with a per-IP block that drops connections instead of
+# saying 429, so a household that used the feature got cut off and the globe
+# came back nearly empty. The registry now gets asked from here, four times a
+# day, by one client, instead of by every install.
+#
+# Auth and publishing target are the same as receivers.yml and satellites.yml -
+# see the long note in receivers.yml for the deploy-key setup.
+name: tles
+
+on:
+  # Every six hours. A TLE is good for days and the app refuses one whose epoch
+  # is over a fortnight old, so this is not about accuracy - it is about a
+  # satellite that launched this morning being on the globe this evening, and
+  # about the file never being so old that a phone falls back to asking SatNOGS
+  # itself. Offset from the hour, and clear of the nightly catalogue run at
+  # 03:40, which holds the same target repo checked out while it works.
+  schedule:
+    - cron: '25 2,8,14,20 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tles-publish
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    # Two large downloads and one retry apiece. Nothing here waits on a gate.
+    timeout-minutes: 20
+    steps:
+      - name: Checkout SwR (generator lives here)
+        uses: actions/checkout@v4
+        with:
+          repository: Alexsxxx/SwR
+          ssh-key: ${{ secrets.SWR_READ_KEY }}
+          path: swr
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # The exact version pinned in pubspec.yaml - the one every machine runs.
+          flutter-version-file: swr/app/pubspec.yaml
+          # The SDK and pub cache come from actions/cache instead of a fresh
+          # download: about a minute of every run, on a quota that is paid for.
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: swr/app
+        run: flutter pub get
+
+      - name: Checkout swr-privacy (publish target)
+        uses: actions/checkout@v4
+        with:
+          repository: Alexsxxx/swr-privacy
+          ssh-key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          path: pages-repo
+
+      - name: Build tles.json into the target repo
+        id: build
+        working-directory: swr/app
+        # dart run is enough: the generator only touches the Flutter-free halves
+        # of the core (sat_model.dart, sgp4.dart). It reads the catalogue that
+        # the nightly job published into the same repo to know which satellites
+        # it is serving, so that half costs no network at all.
+        run: dart run tool/build_tles.dart ../../pages-repo/tles.json
+
+      - name: Commit & push if changed
+        working-directory: pages-repo
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first, then compare against the index - `git diff` alone does
+          # not see an untracked file, which is how satellites.yml once ran
+          # green for a day while publishing nothing at all.
+          git add tles.json
+          if git diff --cached --quiet -- tles.json; then
+            echo "tles.json unchanged — nothing to publish."
+          else
+            git commit -m "Update tles.json ($(date -u +%FT%TZ))"
+            # Rebase before pushing: the hourly receivers job and the nightly
+            # catalogue job publish into this same repo, and each of the three
+            # only ever touches its own file, so a rebase cannot conflict.
+            for try in 1 2 3; do
+              git pull --rebase origin main && git push origin HEAD:main && break
+              echo "push race, retrying ($try)"
+              sleep 10
+            done
+          fi
+
+      # Carrying the last run forward is right - yesterday's orbits are still
+      # roughly today's - and it has the usual cost: it turns a loud outage into
+      # a silent one. Past two days of carrying, this fails the run on purpose,
+      # and a failed SCHEDULED run is what GitHub mails to the account. It sits
+      # AFTER the push so raising the alarm never costs us the publish.
+      - name: Alert if the elements have been running on old data
+        if: steps.build.outputs.stale_alert != ''
+        run: |
+          echo "::error title=Satellite elements stale::tles.json has been \
+          carried over for more than two days. Both SatNOGS and Celestrak are \
+          refusing, or a JSON shape changed - read the NOT PUBLISHING lines in \
+          the build step's log."
+          exit 1

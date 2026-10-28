@@ -1,0 +1,134 @@
+# ── Moved here from the private SwR repo on 2026-10-28 ──────────────────────
+# This repo is public, so its Actions minutes are free; in SwR every run of the
+# four data jobs came out of the account's 2,000 paid minutes, and they ran
+# out two months running. The generator still lives in SwR: the job checks it
+# out into `swr/` with SWR_READ_KEY (a READ-ONLY deploy key on SwR) and
+# publishes into this repo, checked out as `pages-repo/` with PAGES_DEPLOY_KEY
+# (a write deploy key here - a push by GITHUB_TOKEN would not start the Pages
+# build). The logs are public: they carry only what the published JSON already
+# says. No pull_request trigger, ever - that is what would hand the read key to
+# a fork. Comments below were written in SwR; "this repo" in them means SwR.
+#
+# Three-hourly proxy job: regenerate the unified receiver list and publish it to the
+# public swr-privacy repo, whose GitHub Pages serves it at
+#   https://alexsxxx.github.io/swr-privacy/receivers.json
+# so the app does one small conditional GET against a CDN instead of every device
+# hammering the KiwiSDR / Web-888 / FM-DX registries directly.
+#
+# Why a separate repo: SwR itself is private and free-plan Pages can't publish
+# from a private repo. swr-privacy is public and already has Pages live (source:
+# branch `main`, path `/`), so a file pushed to its main branch auto-deploys.
+#
+# ── Setup (already done) ───────────────────────────────────────────────────
+# This workflow pushes into ANOTHER repo, so the default GITHUB_TOKEN isn't
+# enough. Auth is an SSH deploy key: the write-enabled public key lives on
+# swr-privacy (Settings -> Deploy keys), its private half is the secret
+# SSH_DEPLOY_KEY in THIS repo. actions/checkout below uses it to both clone and
+# push. To rotate: generate a new ed25519 keypair, replace the deploy key on
+# swr-privacy and the SSH_DEPLOY_KEY secret here.
+# The app already points at the URL above (kUnifiedListUrl), so once this runs
+# the app switches over automatically; until then it uses the direct registries.
+#
+# Note: the payload changes every run (timestamp + live user counts), so this
+# adds ~8 commits/day to swr-privacy's history. If that churn is unwelcome, move
+# its Pages source to a dedicated `data` branch and push there instead.
+name: receivers
+
+on:
+  schedule:
+    # Every three hours, on the hour (UTC). It was hourly until 2026-10-26,
+    # and at ~2 billed minutes a run that alone was ~1,490 of the account's
+    # 2,000 free Actions minutes a month - SwR is private, so they are paid
+    # for. The month ran out on 2026-10-25 and every job stopped. A receiver
+    # list three hours old loses nothing that matters: receivers come and go
+    # over days, and the live user counts in it were never exact.
+    - cron: '0 */3 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: receivers-publish
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SwR (generator lives here)
+        uses: actions/checkout@v4
+        with:
+          repository: Alexsxxx/SwR
+          ssh-key: ${{ secrets.SWR_READ_KEY }}
+          path: swr
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # The exact version pinned in pubspec.yaml - the one every machine runs.
+          flutter-version-file: swr/app/pubspec.yaml
+          # The SDK and pub cache come from actions/cache instead of a fresh
+          # download: about a minute of every run, on a quota that is paid for.
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: swr/app
+        run: flutter pub get
+
+      - name: Checkout swr-privacy (publish target)
+        uses: actions/checkout@v4
+        with:
+          repository: Alexsxxx/swr-privacy
+          ssh-key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          path: pages-repo
+
+      - name: Build receivers.json into the target repo
+        id: build
+        working-directory: swr/app
+        # dart run works here even though the package targets Flutter: the
+        # generator only touches pure-Dart code (receiver_parse.dart + http).
+        # A registry that fails - or that answers with a collapsed list, see
+        # kCollapseFloor - is carried over from the previous snapshot, so this
+        # step stays green and publishes; it only records which fleets have been
+        # running on stale data too long, in the `stale_alert` output.
+        # It also writes a per-fleet count table to the run's summary page
+        # (GITHUB_STEP_SUMMARY, no wiring needed here), so what each registry
+        # actually gave us is visible without opening this step's log.
+        run: dart run tool/build_receivers.dart ../../pages-repo/receivers.json
+
+      - name: Commit & push if changed
+        working-directory: pages-repo
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first, then compare against the index - see the note in
+          # satellites.yml. This one works only because receivers.json was
+          # already tracked in the target when it first ran; the same shape of
+          # bug is sitting here waiting for the day the file is renamed or the
+          # target repo is rebuilt.
+          git add receivers.json
+          if git diff --cached --quiet -- receivers.json; then
+            echo "receivers.json unchanged — nothing to publish."
+          else
+            git commit -m "Update receivers.json ($(date -u +%FT%TZ))"
+            git push
+          fi
+
+      # The alert, and the reason the carry-over above is not a way of hiding a
+      # broken registry: once a fleet has been served from the previous snapshot
+      # for more than six hourly runs, this fails the job. A failed SCHEDULED
+      # run is what GitHub mails to the account, and that mail is the whole
+      # point - the job's log is not something anyone reads hourly.
+      #
+      # It runs LAST, after the push, so the alert never costs us the publish.
+      # Expect it to keep firing every hour until the registry comes back or the
+      # parser is fixed; that repetition is the feature.
+      - name: Alert if a fleet has been running on stale data
+        if: steps.build.outputs.stale_alert != ''
+        run: |
+          echo "::error title=Receiver fleet stale::${{ steps.build.outputs.stale_alert }} \
+          has been carried over from an old snapshot for more than 6 hours. \
+          Its registry is down or its JSON shape changed - check the [<fleet>] \
+          lines in the build step's log."
+          exit 1

@@ -1,0 +1,115 @@
+# ── Moved here from the private SwR repo on 2026-10-28 ──────────────────────
+# This repo is public, so its Actions minutes are free; in SwR every run of the
+# four data jobs came out of the account's 2,000 paid minutes, and they ran
+# out two months running. The generator still lives in SwR: the job checks it
+# out into `swr/` with SWR_READ_KEY (a READ-ONLY deploy key on SwR) and
+# publishes into this repo, checked out as `pages-repo/` with PAGES_DEPLOY_KEY
+# (a write deploy key here - a push by GITHUB_TOKEN would not start the Pages
+# build). The logs are public: they carry only what the published JSON already
+# says. No pull_request trigger, ever - that is what would hand the read key to
+# a fork. Comments below were written in SwR; "this repo" in them means SwR.
+#
+# Weekly schedule job: turn EiBi's current season into the file the app reads,
+# and publish it to
+#   https://alexsxxx.github.io/swr-privacy/schedule.json
+# which the app picks up without needing a release. See
+# app/tool/build_schedule.dart for what it does to the raw list and why.
+#
+# Why this exists: shortwave has no RDS, so the only way to name what is on a
+# frequency is the published schedule. EiBi revises its season file every few
+# days - stations move, transmitters fail, a service ends - and a schedule that
+# could only change when the store approves a build would be months out of date
+# by the end of a season, naming stations on frequencies they had left.
+#
+# Weekly rather than nightly on purpose. EiBi is one person compiling by hand;
+# the file moves a few times a week at most, and the app caches for 24 h anyway
+# (kScheduleFetchTtl), so a nightly run would mostly re-publish yesterday.
+#
+# Auth and publishing target are the same as receivers.yml and satellites.yml -
+# see the long note in receivers.yml for the deploy-key setup.
+name: schedule
+
+on:
+  # Mondays, early. The seasons change on the last Sunday of March and October,
+  # so a Monday run is the first one after a changeover - and the generator
+  # falls back to the previous season while the new file is not up yet, which
+  # is the case this timing is chosen to survive.
+  schedule:
+    - cron: '20 4 * * 1' # 04:20 UTC Monday, clear of the other two jobs
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schedule-publish
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    # Two HTTP fetches and a parse. If it is not done in ten minutes it is hung.
+    timeout-minutes: 10
+    steps:
+      - name: Checkout SwR (generator lives here)
+        uses: actions/checkout@v4
+        with:
+          repository: Alexsxxx/SwR
+          ssh-key: ${{ secrets.SWR_READ_KEY }}
+          path: swr
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # The exact version pinned in pubspec.yaml - the one every machine runs.
+          flutter-version-file: swr/app/pubspec.yaml
+          # The SDK and pub cache come from actions/cache instead of a fresh
+          # download: about a minute of every run, on a quota that is paid for.
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: swr/app
+        run: flutter pub get
+
+      - name: Checkout swr-privacy (publish target)
+        uses: actions/checkout@v4
+        with:
+          repository: Alexsxxx/swr-privacy
+          ssh-key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          path: pages-repo
+
+      - name: Build schedule.json into the target repo
+        working-directory: swr/app
+        # dart run is enough: the generator only touches schedule_model.dart,
+        # which has no Flutter in it. It exits non-zero rather than publishing
+        # a file it does not believe in - an unreachable EiBi, a README whose
+        # code tables came out too small to be real, or output its own decoder
+        # will not read back.
+        run: dart run tool/build_schedule.dart ../../pages-repo/schedule.json
+
+      - name: Commit & push if changed
+        working-directory: pages-repo
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage FIRST, then compare against the index. `git diff` alone does
+          # not see an untracked file, and on the first run - when schedule.json
+          # does not exist in the target yet - that reports "unchanged" and
+          # publishes nothing, then keeps reporting it forever because the file
+          # can never start being tracked. That exact bug ran the satellites job
+          # green for a day while it published nothing; see satellites.yml.
+          git add schedule.json
+          if git diff --cached --quiet -- schedule.json; then
+            echo "schedule.json unchanged — nothing to publish."
+          else
+            git commit -m "Update schedule.json ($(date -u +%FT%TZ))"
+            # Rebase before pushing. Two other jobs publish into this same repo
+            # and main may have moved while we were fetching; our commit only
+            # ever touches schedule.json and theirs never do, so a rebase here
+            # cannot conflict.
+            for try in 1 2 3; do
+              git pull --rebase origin main && git push origin HEAD:main && break
+              echo "push race, retrying ($try)"
+              sleep 10
+            done
+          fi

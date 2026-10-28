@@ -1,0 +1,165 @@
+# ── Moved here from the private SwR repo on 2026-10-28 ──────────────────────
+# This repo is public, so its Actions minutes are free; in SwR every run of the
+# four data jobs came out of the account's 2,000 paid minutes, and they ran
+# out two months running. The generator still lives in SwR: the job checks it
+# out into `swr/` with SWR_READ_KEY (a READ-ONLY deploy key on SwR) and
+# publishes into this repo, checked out as `pages-repo/` with PAGES_DEPLOY_KEY
+# (a write deploy key here - a push by GITHUB_TOKEN would not start the Pages
+# build). The logs are public: they carry only what the published JSON already
+# says. No pull_request trigger, ever - that is what would hand the read key to
+# a fork. Comments below were written in SwR; "this repo" in them means SwR.
+#
+# Nightly catalogue job: work out which satellites are actually worth putting on
+# the globe, and publish the answer to
+#   https://alexsxxx.github.io/swr-privacy/satellites.json
+# which the app reads without needing a release. See
+# app/tool/build_satellites.dart for the four gates and why each one exists.
+#
+# Why this exists at all: the catalogue used to be a hand-written list, and on
+# 2026-08-04 half of it pointed at NOAA 15, 18 and 19 — all three decommissioned
+# during 2025. Three markers over transmitters that had been dark for a year,
+# and nothing in the code could have known. This job asks instead of remembering.
+#
+# Auth and publishing target are the same as receivers.yml — see the long note
+# there for the deploy-key setup.
+name: satellites
+
+on:
+  # Nightly. What is on the air changes over weeks, and db.satnogs.org and
+  # network.satnogs.org are one machine that hands out a limited amount before
+  # it stops answering an address entirely - it drops the connection rather than
+  # saying 429, so being cut off looks exactly like being down. The job is built
+  # around that: it paces observation queries three seconds apart, asks about
+  # last night's catalogue BEFORE downloading the 5 MB of lists that use the
+  # address up, and remembers each answer for a week so a settled night asks
+  # about ten satellites rather than seventy.
+  #
+  # A fresh runner IP each night is part of why the gate can work here at all;
+  # it did not, from a dev machine that had been querying all day.
+  #
+  # What to watch in the log: `heard-lately (...): asked N, M unanswered` twice,
+  # and the WARNING that fires when more than half of the shortlist has no
+  # answer at all. The published file says the same thing in `heardGateRan`,
+  # which is what a reader downstream deserves to be told - a gate that
+  # abstained let everything through.
+  schedule:
+    - cron: '40 3 * * *' # 03:40 UTC, off the hour and out of receivers' way
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: satellites-publish
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    # A settled night is minutes; the first night after a break re-asks about
+    # the whole catalogue at one query every three seconds, which is not.
+    timeout-minutes: 90
+    steps:
+      - name: Checkout SwR (generator lives here)
+        uses: actions/checkout@v4
+        with:
+          repository: Alexsxxx/SwR
+          ssh-key: ${{ secrets.SWR_READ_KEY }}
+          path: swr
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # The exact version pinned in pubspec.yaml - the one every machine runs.
+          flutter-version-file: swr/app/pubspec.yaml
+          # The SDK and pub cache come from actions/cache instead of a fresh
+          # download: about a minute of every run, on a quota that is paid for.
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: swr/app
+        run: flutter pub get
+
+      - name: Checkout swr-privacy (publish target)
+        uses: actions/checkout@v4
+        with:
+          repository: Alexsxxx/swr-privacy
+          ssh-key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          path: pages-repo
+
+      # The last good copy of each SatNOGS list, so a list the runner's address
+      # is refused one night is read from the last night it came (see ListCache
+      # in the generator). Caches are immutable, hence a fresh key per run and
+      # the prefix to restore the newest from. Restore and save are separate
+      # steps because the alert below fails the run on purpose, and
+      # actions/cache's own post-step saves only on success.
+      - name: Restore cached SatNOGS lists
+        uses: actions/cache/restore@v4
+        with:
+          path: satnogs-cache
+          key: satnogs-lists-${{ github.run_id }}
+          restore-keys: satnogs-lists-
+
+      - name: Build satellites.json into the target repo
+        id: build
+        working-directory: swr/app
+        # dart run is enough: the generator only touches the dependency-free
+        # halves of the core (sat_model.dart, rx_windows.dart, receiver_parse).
+        # A run that comes back with less than half of last night's catalogue is
+        # not published - last night's is carried over with a `staleSince` stamp
+        # instead, and `stale_alert` says whether that has gone on too long.
+        run: >-
+          dart run tool/build_satellites.dart ../../pages-repo/satellites.json
+          --list-cache=../../satnogs-cache
+
+      - name: Save SatNOGS lists for the next run
+        if: always() && hashFiles('satnogs-cache/*.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: satnogs-cache
+          key: satnogs-lists-${{ github.run_id }}
+
+      - name: Commit & push if changed
+        working-directory: pages-repo
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage FIRST, then compare against the index. `git diff` alone does
+          # not see an untracked file, so on the very first run - when
+          # satellites.json does not exist in the target yet - it reported
+          # "unchanged" and published nothing. The job then said success, and
+          # kept saying it: the file could never be created, so it could never
+          # start being tracked. It ran green for a day while the app fell back
+          # to eighteen hand-written satellites because the URL 404'd.
+          git add satellites.json
+          if git diff --cached --quiet -- satellites.json; then
+            echo "satellites.json unchanged — nothing to publish."
+          else
+            git commit -m "Update satellites.json ($(date -u +%FT%TZ))"
+            # Rebase before pushing, and mean it. This job holds the target repo
+            # checked out for as long as it spends asking SatNOGS, and the
+            # hourly receivers job publishes into that same repo - so by the
+            # time we push, main has usually moved and a plain push is rejected
+            # non-fast-forward. Our commit only ever touches satellites.json and
+            # theirs only receivers.json, so a rebase can never conflict.
+            for try in 1 2 3; do
+              git pull --rebase origin main && git push origin HEAD:main && break
+              echo "push race, retrying ($try)"
+              sleep 10
+            done
+          fi
+
+      # Why carrying the catalogue over is not the same as hiding a broken job:
+      # once it has been carried for more than three nights, this fails the run,
+      # and a failed scheduled run is what GitHub mails to the account. It sits
+      # AFTER the push so raising the alarm never costs us the publish, and it
+      # keeps firing nightly until the registry is back - that repetition is the
+      # feature. Same mechanism as receivers.yml.
+      - name: Alert if the catalogue has been running on old data
+        if: steps.build.outputs.stale_alert != ''
+        run: |
+          echo "::error title=Satellite catalogue stale::The published catalogue \
+          has been carried over from an older run for more than 3 nights. SatNOGS \
+          DB or the OpenWebRX fleet is down, or a JSON shape changed - read the \
+          NOT PUBLISHING lines in the build step's log."
+          exit 1
