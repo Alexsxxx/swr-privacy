@@ -1,0 +1,97 @@
+# ── Moved here from the private SwR repo on 2026-10-28 ──────────────────────
+# This repo is public, so its Actions minutes are free; in SwR every run of the
+# four data jobs came out of the account's 2,000 paid minutes, and they ran
+# out two months running. The generator still lives in SwR: the job checks it
+# out into `swr/` with SWR_READ_KEY (a READ-ONLY deploy key on SwR) and
+# publishes into this repo, checked out as `pages-repo/` with PAGES_DEPLOY_KEY
+# (a write deploy key here - a push by GITHUB_TOKEN would not start the Pages
+# build). The logs are public: they carry only what the published JSON already
+# says. No pull_request trigger, ever - that is what would hand the read key to
+# a fork. Comments below were written in SwR; "this repo" in them means SwR.
+#
+# Sky job: everything in Earth orbit with public elements, to
+#   https://alexsxxx.github.io/swr-privacy/sky.bin
+# for the satellite globe's "In orbit" layer - ~19 500 dots, ~700 kB. See
+# app/tool/build_sky.dart in SwR for what it asks CelesTrak and why in CSV.
+#
+# Once a day: the picture is of how many and roughly where, and the app
+# draws elements up to a week old. About a dozen CelesTrak lists, each asked
+# once with no retry - CelesTrak answers 403 to repeated big downloads.
+name: sky
+
+on:
+  schedule:
+    - cron: '50 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sky-publish
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout SwR (generator lives here)
+        uses: actions/checkout@v4
+        with:
+          repository: Alexsxxx/SwR
+          ssh-key: ${{ secrets.SWR_READ_KEY }}
+          path: swr
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: swr/app/pubspec.yaml
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: swr/app
+        run: flutter pub get
+
+      - name: Checkout swr-privacy (publish target)
+        uses: actions/checkout@v4
+        with:
+          repository: Alexsxxx/swr-privacy
+          ssh-key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          path: pages-repo
+
+      - name: Build sky.bin into the target repo
+        id: build
+        working-directory: swr/app
+        # Reads the last published sky.bin from the target to carry groups
+        # and debris over a failed list.
+        run: dart run tool/build_sky.dart ../../pages-repo/sky.bin
+
+      - name: Commit & push if changed
+        working-directory: pages-repo
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first, then compare against the index (see tles.yml).
+          git add sky.bin
+          if git diff --cached --quiet -- sky.bin; then
+            echo "sky.bin unchanged — nothing to publish."
+          else
+            git commit -m "Update sky.bin ($(date -u +%FT%TZ))"
+            for try in 1 2 3; do
+              git pull --rebase origin main && git push origin HEAD:main && break
+              echo "push race, retrying ($try)"
+              sleep 10
+            done
+          fi
+
+      # After the push, so raising the alarm never costs the publish: three
+      # days without a fresh `active` list fails the run on purpose, and a
+      # failed scheduled run is what GitHub mails to the account.
+      - name: Alert if the sky has not been renewed
+        if: steps.build.outputs.stale_alert != ''
+        run: |
+          echo "::error title=Sky stale::sky.bin has not been renewed for \
+          three days - CelesTrak is refusing or its CSV changed. Read the \
+          NOT PUBLISHING line in the build step's log."
+          exit 1
