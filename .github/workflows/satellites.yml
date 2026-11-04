@@ -34,8 +34,12 @@ on:
   # address up, and remembers each answer for a week so a settled night asks
   # about ten satellites rather than seventy.
   #
-  # A fresh runner IP each night is part of why the gate can work here at all;
-  # it did not, from a dev machine that had been querying all day.
+  # It runs on the Mac at home (self-hosted, label `satnogs`), not on GitHub's
+  # runners: since 2026-10-06 network.satnogs.org has not answered a single
+  # question from an Actions address, while the home IP gets an answer in a
+  # second. It is the same address every night now, which is exactly why the
+  # pacing and the week-long memory above matter - burn it and there is no
+  # fresh IP tomorrow. Setup, guards and rollback: SELF_HOSTED_RUNNER.md in SwR.
   #
   # What to watch in the log: `heard-lately (...): asked N, M unanswered` twice,
   # and the WARNING that fires when more than half of the shortlist has no
@@ -55,7 +59,10 @@ concurrency:
 
 jobs:
   build-and-publish:
-    runs-on: ubuntu-latest
+    # The Mac at home - see the note above `schedule`. The `satnogs` label
+    # keeps every other job off it. If the Mac is down the run waits in the
+    # queue for a day and then fails, which mails the account.
+    runs-on: [self-hosted, macOS, ARM64, satnogs]
     # A settled night is minutes; the first night after a break re-asks about
     # the whole catalogue at one query every three seconds, which is not.
     timeout-minutes: 90
@@ -72,9 +79,9 @@ jobs:
           channel: stable
           # The exact version pinned in pubspec.yaml - the one every machine runs.
           flutter-version-file: swr/app/pubspec.yaml
-          # The SDK and pub cache come from actions/cache instead of a fresh
-          # download: about a minute of every run, on a quota that is paid for.
-          cache: true
+          # No actions/cache: on the self-hosted Mac the SDK stays in the
+          # runner's own tool cache between runs, so there is nothing to save.
+          cache: false
 
       - name: Resolve dependencies
         working-directory: swr/app
